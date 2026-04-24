@@ -14,7 +14,7 @@
 **/ego4d_raw/
 **/Ego4d/
 **/egoexo4d_raw/
-# **/checkpoints/
+**/checkpoints/
 **/droid_wds/
 **/recordings/
 **/model.pth
