@@ -179,9 +179,9 @@ pip install -e ./vip
 > pip install "protobuf>=6.31.1,<8.0.0"
 > ```
 
-> **Note for ROS users:** If you have ROS installed system-wide, pip may report dependency conflict warnings involving `launch-ros` or `generate-parameter-library-py` during installation. These are pre-existing ROS packages outside the venv and do not affect this project. The warnings can be silenced by ensuring the following are installed in the venv:
+> **Note for users with system-wide packages:** pip may report dependency conflict warnings involving `pyyaml`, `jinja2`, or `typeguard` during installation if other software installed on your system declares them as dependencies. The setup script installs these early to prevent the warnings. If you see them anyway, install them manually first:
 > ```bash
-> pip install pyyaml typeguard setuptools jinja2
+> pip install pyyaml jinja2 typeguard setuptools
 > ```
 
 > **Note on TensorFlow/PyTorch GPU conflict:** The fine-tuning scripts handle this automatically by hiding the GPU from TensorFlow before PyTorch loads. Do not import TensorFlow before PyTorch in your own scripts or this will cause GPU memory conflicts.
@@ -215,6 +215,10 @@ Pre-trained model weights will be downloaded automatically the first time you ca
 ---
 
 ## Known Compatibility Issues and Fixes
+
+### Pillow version: 9.1.0 vs VIP's declared 9.0.1
+
+VIP's `setup.py` declares an exact requirement of `pillow==9.0.1`, which will cause a pip conflict warning when installing from `requirements.txt`. This is intentional -- `9.1.0` is used instead because `9.0.1` has a downstream bug that breaks image processing in this pipeline, while `9.1.0` remains fully compatible with VIP at runtime. The warning can be safely ignored. Do not downgrade to `9.0.1`.
 
 ### VIP and Python 3.12: Hydra dataclass error
 

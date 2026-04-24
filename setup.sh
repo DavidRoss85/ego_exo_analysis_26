@@ -261,11 +261,13 @@ info "Virtual environment activated."
 # -----------------------------------------------------------------------------
 header "Step 3: Upgrade pip and setuptools"
 if maybe_prompt "Upgrade pip and setuptools inside the virtual environment"; then
-    # Use python -m pip to guarantee we're targeting the correct venv interpreter.
-    # setuptools==81.0.0 is pinned -- this is the version from the known-good venv
-    # and is required for pkg_resources to be importable (needed by gdown and r3m).
-    "$PYTHON" -m pip install --upgrade pip -q
-    "$PYTHON" -m pip install "setuptools==81.0.0" "wheel==0.47.0" -q
+    "$PYTHON" -m pip install --upgrade pip -q 2>/dev/null
+    # Install common dependencies early so pip's resolver sees them as
+    # satisfied before anything else runs.
+    "$PYTHON" -m pip install pyyaml jinja2 typeguard -q 2>/dev/null
+    # setuptools==81.0.0 is pinned -- required for pkg_resources to be importable
+    # (needed by gdown and r3m at import time on Python 3.12).
+    "$PYTHON" -m pip install "setuptools==81.0.0" "wheel==0.47.0" -q 2>/dev/null
     if "$PYTHON" -c "import pkg_resources" &>/dev/null; then
         success "pip, setuptools==81.0.0, wheel -- OK"
     else
