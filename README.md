@@ -162,7 +162,8 @@ source .venv/bin/activate
 Install the core Python dependencies:
 
 ```bash
-pip install --upgrade pip
+pip install --upgrade pip 2>/dev/null
+pip install pyyaml jinja2 typeguard 2>/dev/null
 pip install "setuptools==81.0.0" "wheel==0.47.0"
 pip install torch torchvision
 pip install -r requirements.txt
@@ -177,11 +178,6 @@ pip install -e ./vip
 > **Note on protobuf:** TensorFlow 2.21 requires protobuf >= 6.31.1. If you hit protobuf conflicts, run:
 > ```bash
 > pip install "protobuf>=6.31.1,<8.0.0"
-> ```
-
-> **Note for users with system-wide packages:** pip may report dependency conflict warnings involving `pyyaml`, `jinja2`, or `typeguard` during installation if other software installed on your system declares them as dependencies. The setup script installs these early to prevent the warnings. If you see them anyway, install them manually first:
-> ```bash
-> pip install pyyaml jinja2 typeguard setuptools
 > ```
 
 > **Note on TensorFlow/PyTorch GPU conflict:** The fine-tuning scripts handle this automatically by hiding the GPU from TensorFlow before PyTorch loads. Do not import TensorFlow before PyTorch in your own scripts or this will cause GPU memory conflicts.
@@ -548,5 +544,7 @@ Column definitions:
 
 Additional guides are in the `docs/` folder:
 
+- `docs/EVAL_REFERENCE.md` — All flags and usage examples for the MetaWorld evaluation scripts
+- `docs/FINETUNE_REFERENCE.md` — All flags and usage examples for the DROID and Ego-Exo4D fine-tuning scripts
 - `docs/DROID_DOWNLOAD.md` — How to enumerate and selectively download shards from the full DROID dataset at scale, including bandwidth and storage planning
 - `docs/EGOEXO4D_ACCESS.md` — Detailed Ego-Exo4D access walkthrough, credential setup, common CLI errors and fixes, and how to select specific scenarios and camera streams
