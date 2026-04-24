@@ -105,6 +105,73 @@ info "Prompt mode     : ${PROMPT_MODE}"
 echo ""
 
 # -----------------------------------------------------------------------------
+# Pre-flight: Python and pip availability checks
+# -----------------------------------------------------------------------------
+header "Pre-flight checks"
+
+# Check that python3 exists
+if ! command -v python3 &>/dev/null; then
+    error "python3 not found. Please install Python 3.12 before running this script."
+    error "On Ubuntu: sudo apt-get install python3.12 python3.12-venv"
+    exit 1
+fi
+
+# Check Python version — require 3.12.x
+PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
+PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
+
+info "Detected Python ${PY_VERSION}"
+
+if [ "$PY_MAJOR" -ne 3 ] || [ "$PY_MINOR" -ne 12 ]; then
+    warn "This project was developed and tested on Python 3.12."
+    warn "Your system default is Python ${PY_VERSION}."
+    warn ""
+    warn "You have two options:"
+    warn "  1. Install Python 3.12 and re-run this script."
+    warn "     On Ubuntu: sudo apt-get install python3.12 python3.12-venv"
+    warn "  2. Continue anyway -- things may work on Python ${PY_VERSION},"
+    warn "     but the Hydra compatibility patch targets 3.12 specifically"
+    warn "     and other dependency issues may arise."
+    echo ""
+    read -rp "Continue with Python ${PY_VERSION}? [y/N] " ans
+    case "$ans" in
+        [Yy]*) info "Continuing with Python ${PY_VERSION}." ;;
+        *) error "Aborted. Please install Python 3.12 and re-run."; exit 1 ;;
+    esac
+else
+    success "Python ${PY_VERSION} -- OK"
+fi
+
+# Check that pip is available
+if ! python3 -m pip --version &>/dev/null; then
+    warn "pip not found for Python ${PY_VERSION}. Attempting to install..."
+    if command -v apt-get &>/dev/null; then
+        sudo apt-get install -y python3-pip
+    else
+        error "Could not install pip automatically. Please install it manually:"
+        error "  python3 -m ensurepip --upgrade"
+        exit 1
+    fi
+fi
+success "pip -- OK"
+
+# Check that python3-venv is available by doing a dry-run
+if ! python3 -m venv --help &>/dev/null; then
+    warn "python3-venv module not available. Attempting to install..."
+    if command -v apt-get &>/dev/null; then
+        sudo apt-get install -y python3.12-venv
+    else
+        error "Could not install python3-venv automatically."
+        error "Please run: sudo apt-get install python3.12-venv"
+        exit 1
+    fi
+fi
+success "python3-venv -- OK"
+
+echo ""
+
+# -----------------------------------------------------------------------------
 # Step 0: Sudo password up front
 # -----------------------------------------------------------------------------
 header "Step 0: Sudo credentials"
@@ -121,16 +188,38 @@ success "Sudo credentials cached."
 # Step 1: System packages
 # -----------------------------------------------------------------------------
 header "Step 1: System packages"
-if maybe_prompt "Install system packages via apt-get (libgl1-mesa-glx, libglib2.0-0)"; then
+info "python3-venv and python3-pip are required. OpenGL and GLib packages"
+info "are only needed if MetaWorld rendering fails with a missing shared"
+info "library error -- most desktop Ubuntu installs already have them."
+
+# Detect Ubuntu version to select correct package names
+UBUNTU_VERSION=$(lsb_release -rs 2>/dev/null || echo "0")
+UBUNTU_MAJOR=$(echo "$UBUNTU_VERSION" | cut -d. -f1)
+info "Detected Ubuntu ${UBUNTU_VERSION}"
+
+if [ "$UBUNTU_MAJOR" -ge 24 ]; then
+    # Ubuntu 24.04+: libgl1-mesa-glx was removed, libglib2.0-0 renamed to libglib2.0-0t64
+    GL_PKG="libgl1"
+    GLIB_PKG="libglib2.0-0t64"
+else
+    # Ubuntu 22.04 and earlier
+    GL_PKG="libgl1-mesa-glx"
+    GLIB_PKG="libglib2.0-0"
+fi
+
+info "OpenGL package : ${GL_PKG}"
+info "GLib package   : ${GLIB_PKG}"
+
+if maybe_prompt "Install/verify system packages via apt-get"; then
     info "Updating apt package list..."
     sudo apt-get update -qq
-    info "Installing system packages..."
+    info "Installing system packages (skipped if already present)..."
     sudo apt-get install -y \
-        libgl1-mesa-glx \
-        libglib2.0-0 \
         python3-venv \
-        python3-pip
-    success "System packages installed."
+        python3-pip \
+        "$GL_PKG" \
+        "$GLIB_PKG"
+    success "System packages verified."
 fi
 
 # -----------------------------------------------------------------------------
@@ -181,6 +270,13 @@ fi
 # -----------------------------------------------------------------------------
 header "Step 4: Core Python packages"
 if maybe_prompt "Install core packages (torch, torchvision, numpy, scipy, etc.)"; then
+    info "Installing base dependencies..."
+    "$PIP" install \
+        pyyaml \
+        typeguard \
+        setuptools \
+        jinja2 \
+        -q
     info "Installing PyTorch (CUDA 11.8 build)..."
     "$PIP" install torch torchvision \
         --index-url https://download.pytorch.org/whl/cu118 -q
@@ -287,12 +383,9 @@ else
         cp "$HYDRA_CONF" "$BACKUP"
         success "Backup saved to: ${BACKUP}"
 
-        PATCH_COUNT=0
-        ORIGINAL_CONTENT=$(cat "$HYDRA_CONF")
-
-        # We use Python to do the patching safely — it handles
-        # indentation and multiline context better than sed.
-        "$PYTHON" - "$HYDRA_CONF" <<'PYEOF'
+        # Write the patch script to a temp file so we only run it once
+        PATCH_SCRIPT=$(mktemp /tmp/hydra_patch_XXXXXX.py)
+        cat > "$PATCH_SCRIPT" << 'PYEOF'
 import sys
 import re
 
@@ -305,44 +398,28 @@ changes = []
 
 # Ensure 'field' is imported from dataclasses
 if "from dataclasses import" in content:
-    # Add 'field' to existing import if not already there
     def add_field_to_import(m):
         imports = m.group(1)
-        if "field" not in imports.split(","):
+        if "field" not in [x.strip() for x in imports.split(",")]:
             imports = imports.rstrip() + ", field"
             changes.append("Added 'field' to dataclasses import")
         return f"from dataclasses import {imports}"
     content = re.sub(r"from dataclasses import ([^\n]+)", add_field_to_import, content)
 
-# Pattern: SomeClass = SomeClass()   ->  SomeClass = field(default_factory=SomeClass)
-# Matches lines like:
-#   override_dirname: OverrideDirname = OverrideDirname()
-#   config: JobConfig = JobConfig()
+# Replace mutable dataclass defaults: SomeClass = SomeClass() -> field(default_factory=SomeClass)
 pattern = re.compile(
-    r"^( {4,})"                          # leading indent (at least 4 spaces)
-    r"(\w+)"                             # field name
-    r":\s*"                              # colon + optional space
-    r"([\w.]+)"                          # type annotation
-    r"\s*=\s*"                           # equals sign
-    r"([\w.]+)\(\)"                      # default = ClassName()
-    r"\s*$",                             # end of line
+    r"^( {4,})(\w+):\s*([\w.]+)\s*=\s*([\w.]+)\(\)\s*$",
     re.MULTILINE
 )
 
+primitives = {"str", "int", "float", "bool", "list", "dict", "tuple", "set"}
+
 def replace_mutable_default(m):
-    indent    = m.group(1)
-    fieldname = m.group(2)
-    typehint  = m.group(3)
-    factory   = m.group(4)
-    # Only replace if type and factory are the same class (mutable dataclass default)
-    # Skip primitives like str, int, bool, list, dict
-    primitives = {"str", "int", "float", "bool", "list", "dict", "tuple", "set"}
+    indent, fieldname, typehint, factory = m.group(1), m.group(2), m.group(3), m.group(4)
     if factory in primitives:
         return m.group(0)
-    new_line = f"{indent}{fieldname}: {typehint} = field(default_factory={factory})"
-    changes.append(f"  Line patched: '{fieldname}: {typehint} = {factory}()'"
-                   f" -> 'field(default_factory={factory})'")
-    return new_line
+    changes.append(f"  Line patched: '{fieldname}: {typehint} = {factory}()' -> 'field(default_factory={factory})'")
+    return f"{indent}{fieldname}: {typehint} = field(default_factory={factory})"
 
 content = pattern.sub(replace_mutable_default, content)
 
@@ -356,21 +433,21 @@ else:
     print("NOCHANGE|No mutable defaults found — file may already be patched.")
 PYEOF
 
-        # Read output and display nicely
-        PATCH_STATUS=$("$PYTHON" - "$HYDRA_CONF" 2>/dev/null || true)
-        # Re-run to capture output properly
-        PATCH_OUTPUT=$("$PYTHON" - "$HYDRA_CONF" <<'PYEOF2'
-import sys, re
-filepath = sys.argv[1]
-with open(filepath, "r") as f:
-    content = f.read()
-# Just check if field( appears — indicates already patched or we just patched it
-count = content.count("field(default_factory=")
-print(f"field(default_factory= occurrences found: {count}")
-PYEOF2
-        )
+        # Run the patch script once and capture output
+        PATCH_OUTPUT=$("$PYTHON" "$PATCH_SCRIPT" "$HYDRA_CONF" 2>&1)
+        PATCH_EXIT=$?
+        rm -f "$PATCH_SCRIPT"
 
-        success "Hydra patch applied. ${PATCH_OUTPUT}"
+        # Display results
+        while IFS= read -r line; do
+            case "$line" in
+                PATCHED*)  success "${line#PATCHED|}" ;;
+                CHANGE*)   echo -e "    ${GREEN}+${RESET} ${line#CHANGE|}" ;;
+                NOCHANGE*) warn "${line#NOCHANGE|}" ;;
+                *)         info "$line" ;;
+            esac
+        done <<< "$PATCH_OUTPUT"
+
         echo ""
         warn "IMPORTANT: This patch is automated but may not catch every"
         warn "mutable default in hydra's codebase. If you still hit a"

@@ -110,14 +110,19 @@ ego_exo_analysis_26/
   - With larger DROID subset: up to several hundred GB (see [DROID section](#droid))
   - With Ego-Exo4D (cooking + bike repair exo): ~80-150 GB depending on resolution selected
 - **System binaries required:**
-  - `libgl1-mesa-glx` or equivalent (for MetaWorld rendering)
-  - `libglib2.0-0`
   - `gsutil` (for DROID download via Google Cloud Storage)
   - `awscli` (for Ego-Exo4D download)
+- **System binaries that may be required** depending on your Ubuntu configuration:
+  - `libgl1-mesa-glx` or equivalent -- needed for MetaWorld's OpenGL rendering if not already present
+  - `libglib2.0-0` -- required by some OpenCV and rendering dependencies
 
-Install system binaries on Ubuntu:
+Most desktop Ubuntu installs will already have these. If MetaWorld rendering fails with a missing shared library error, install them with:
 ```bash
+# Ubuntu 22.04
 sudo apt-get install -y libgl1-mesa-glx libglib2.0-0
+
+# Ubuntu 24.04+ (libgl1-mesa-glx was removed; libglib2.0-0 renamed)
+sudo apt-get install -y libgl1 libglib2.0-0t64
 ```
 
 ---
@@ -165,6 +170,11 @@ pip install ego4d
 > **Note on protobuf:** TensorFlow 2.21 requires protobuf >= 6.31.1. If you hit protobuf conflicts, run:
 > ```bash
 > pip install "protobuf>=6.31.1,<8.0.0"
+> ```
+
+> **Note for ROS users:** If you have ROS installed system-wide, pip may report dependency conflict warnings involving `launch-ros` or `generate-parameter-library-py` during installation. These are pre-existing ROS packages outside the venv and do not affect this project. The warnings can be silenced by ensuring the following are installed in the venv:
+> ```bash
+> pip install pyyaml typeguard setuptools jinja2
 > ```
 
 > **Note on TensorFlow/PyTorch GPU conflict:** The fine-tuning scripts handle this automatically by hiding the GPU from TensorFlow before PyTorch loads. Do not import TensorFlow before PyTorch in your own scripts or this will cause GPU memory conflicts.
