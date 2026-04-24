@@ -1,0 +1,17 @@
+task,demo_episodes,camera_id,train_steps,batch_size,eval_episodes,encoder,seed,success_rate,mean,std,row_type
+button-press,10,2,20000,32,20,droid_frozen,0,1.0,1.0,0.0,per_seed
+button-press,10,2,20000,32,20,droid_frozen,1,1.0,1.0,0.0,per_seed
+button-press,10,2,20000,32,20,droid_frozen,2,1.0,1.0,0.0,per_seed
+assembly,10,2,20000,32,20,droid_frozen,0,0.05,0.1667,0.1027,per_seed
+assembly,10,2,20000,32,20,droid_frozen,1,0.15,0.1667,0.1027,per_seed
+assembly,10,2,20000,32,20,droid_frozen,2,0.3,0.1667,0.1027,per_seed
+bin-picking,10,2,20000,32,20,droid_frozen,0,0.4,0.3333,0.0943,per_seed
+bin-picking,10,2,20000,32,20,droid_frozen,1,0.2,0.3333,0.0943,per_seed
+bin-picking,10,2,20000,32,20,droid_frozen,2,0.4,0.3333,0.0943,per_seed
+drawer-open,10,2,20000,32,20,droid_frozen,0,1.0,1.0,0.0,per_seed
+drawer-open,10,2,20000,32,20,droid_frozen,1,1.0,1.0,0.0,per_seed
+drawer-open,10,2,20000,32,20,droid_frozen,2,1.0,1.0,0.0,per_seed
+hammer,10,2,20000,32,20,droid_frozen,0,0.85,0.7667,0.0624,per_seed
+hammer,10,2,20000,32,20,droid_frozen,1,0.75,0.7667,0.0624,per_seed
+hammer,10,2,20000,32,20,droid_frozen,2,0.7,0.7667,0.0624,per_seed
+AVERAGE,10,all,20000,32,20,droid_frozen,all,N/A,0.6533,0.0519,summary

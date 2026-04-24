@@ -1,0 +1,17 @@
+task,demo_episodes,camera_id,train_steps,batch_size,eval_episodes,seed,success_rate,mean,std,row_type
+button-press,5,0,20000,32,20,0,0.75,0.7,0.0408,per_seed
+button-press,5,0,20000,32,20,1,0.65,0.7,0.0408,per_seed
+button-press,5,0,20000,32,20,2,0.7,0.7,0.0408,per_seed
+assembly,5,0,20000,32,20,0,0.2,0.2833,0.0624,per_seed
+assembly,5,0,20000,32,20,1,0.3,0.2833,0.0624,per_seed
+assembly,5,0,20000,32,20,2,0.35,0.2833,0.0624,per_seed
+bin-picking,5,0,20000,32,20,0,0.15,0.3167,0.1434,per_seed
+bin-picking,5,0,20000,32,20,1,0.3,0.3167,0.1434,per_seed
+bin-picking,5,0,20000,32,20,2,0.5,0.3167,0.1434,per_seed
+drawer-open,5,0,20000,32,20,0,0.55,0.65,0.0816,per_seed
+drawer-open,5,0,20000,32,20,1,0.75,0.65,0.0816,per_seed
+drawer-open,5,0,20000,32,20,2,0.65,0.65,0.0816,per_seed
+hammer,5,0,20000,32,20,0,0.45,0.4667,0.0236,per_seed
+hammer,5,0,20000,32,20,1,0.5,0.4667,0.0236,per_seed
+hammer,5,0,20000,32,20,2,0.45,0.4667,0.0236,per_seed
+AVERAGE,5,all,20000,32,20,all,N/A,0.4833,0.0704,summary
