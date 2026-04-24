@@ -13,6 +13,10 @@ David Ross, Northeastern University
 > chmod +x setup.sh
 > ./setup.sh
 > ```
+> After the script completes, activate the virtual environment with `source .venv/bin/activate`. Alternatively, source the script directly so the venv is activated automatically in your current terminal when setup finishes:
+> ```bash
+> . ./setup.sh
+> ```
 > Run `./setup.sh --help` for all options, including `--env-name` to customize the venv folder name and `--prompt` to step through each stage interactively.
 
 ---
@@ -159,13 +163,16 @@ Install the core Python dependencies:
 
 ```bash
 pip install --upgrade pip
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-pip install numpy scipy pillow tqdm wandb transformers
-pip install metaworld
-pip install tensorflow tensorflow-datasets
-pip install tfrecord
-pip install ego4d
+pip install "setuptools==81.0.0" "wheel==0.47.0"
+pip install torch torchvision
+pip install -r requirements.txt
+pip install -e ./r3m
+pip install -e ./vip
 ```
+
+> **Important -- MetaWorld version:** The eval scripts use the `metaworld.ML1` API which was removed in MetaWorld 3.0.0 (released June 2025). The `requirements.txt` pins `metaworld==3.0.0` which is the version from the known-good working environment and includes the ML1 API. Do not upgrade metaworld beyond this version.
+
+> **Important -- setuptools version:** `setuptools==81.0.0` must be installed before any other packages. It provides `pkg_resources` which is required by `gdown` and `r3m` at import time. Python 3.12 venvs do not include setuptools by default.
 
 > **Note on protobuf:** TensorFlow 2.21 requires protobuf >= 6.31.1. If you hit protobuf conflicts, run:
 > ```bash
@@ -363,81 +370,142 @@ See `docs/EGOEXO4D_ACCESS.md` for a more detailed walkthrough including how to t
 
 ### MetaWorld Baseline Evaluation
 
-Evaluate frozen R3M across all five tasks, three camera viewpoints, and a given number of demonstrations:
+The evaluation scripts run the full 3-camera × 3-demo-size sweep automatically when called with just `--encoder baseline`. No additional arguments are needed for a full reproduction run:
 
 ```bash
-python3 src/evals/metaworld/r3m_metaworld_multitask.py \
-  --demo_episodes 10 \
-  --camera_id 0 \
-  --train_steps 20000 \
-  --batch_size 32 \
-  --eval_episodes 20 \
-  --seed 42
+# Full sweep — all 5 tasks, 3 cameras, 3 demo sizes (5/10/25), 3 seeds each
+python3 src/evals/metaworld/r3m_metaworld_multitask.py --encoder baseline
+python3 src/evals/metaworld/vip_metaworld_multitask.py --encoder baseline
 ```
 
-For VIP:
+For a quick single-configuration test (useful for verifying the setup works before committing to the full sweep):
 
 ```bash
+# Single run — 10 demos, camera 0, all 5 tasks
+python3 src/evals/metaworld/r3m_metaworld_multitask.py \
+  --encoder baseline \
+  --single_run \
+  --demos 10 \
+  --camera 0
+
 python3 src/evals/metaworld/vip_metaworld_multitask.py \
-  --demo_episodes 10 \
-  --camera_id 0 \
-  --train_steps 20000 \
-  --batch_size 32 \
-  --eval_episodes 20 \
-  --seed 42
+  --encoder baseline \
+  --single_run \
+  --demos 10 \
+  --camera 0
 ```
 
 Key arguments:
-- `--demo_episodes`: Number of expert demonstrations (5, 10, or 25)
-- `--camera_id`: Camera viewpoint (0 = front, 1 = side, 2 = top-down)
-- `--seed`: Random seed (used 42, 123, 456 in the paper)
+- `--encoder`: Which encoder to use -- `baseline` (frozen pretrained), `droid` (DROID fine-tuned), or `egoexo4d` (Ego-Exo4D fine-tuned)
+- `--checkpoint`: Path to a fine-tuned `.pt` file (required when `--encoder` is not `baseline`)
+- `--single_run`: Run one camera/demo combination instead of the full sweep
+- `--demos`: Number of demonstrations for `--single_run` mode (default: 10)
+- `--camera`: Camera viewpoint for `--single_run` mode -- 0 = top-down, 1 = front, 2 = side (default: 0)
+- `--tag`: Optional string appended to the CSV filename to distinguish runs (e.g. `frozen`, `full`)
+- `--visualize`: Record policy rollout videos
 
-Results are saved as CSV files in the working directory.
+Results are saved as timestamped CSV files in the working directory.
 
 ### DROID Fine-tuning
 
-Fine-tune the R3M projection head on DROID data, then run MetaWorld evaluation:
+Fine-tune the encoder on DROID data, then evaluate. The `--finetune_mode` flag controls which experiment is run -- `projection_head` freezes the backbone and only updates the final FC layer (the frozen backbone condition in the paper), while `full` updates the entire ResNet-50 (the full fine-tune condition).
 
 ```bash
+# R3M — projection head only (frozen backbone, paper condition 1)
 python3 src/train/droid/r3m_droid_finetune.py \
   --data_dir ./droid_sample/1.0.0 \
-  --out_dir ./checkpoints/r3m_frozen \
+  --out_dir ./checkpoints/r3m \
+  --finetune_mode projection_head \
   --epochs 5 \
-  --max_episodes 100 \
-  --batch_size 16
-```
+  --buffer_size 100 \
+  --steps_per_epoch 200 \
+  --batch_size 16 \
+  --lr 3e-5
 
-For VIP:
+# R3M — full backbone (paper condition 2)
+python3 src/train/droid/r3m_droid_finetune.py \
+  --data_dir ./droid_sample/1.0.0 \
+  --out_dir ./checkpoints/r3m \
+  --finetune_mode full \
+  --epochs 5 \
+  --buffer_size 100 \
+  --steps_per_epoch 200 \
+  --batch_size 16 \
+  --lr 3e-5
+```
 
 ```bash
+# VIP — projection head only
 python3 src/train/droid/vip_droid_finetune.py \
   --data_dir ./droid_sample/1.0.0 \
-  --out_dir ./checkpoints/vip_frozen \
+  --out_dir ./checkpoints/vip \
+  --finetune_mode projection_head \
   --epochs 5 \
-  --max_episodes 100 \
-  --batch_size 16
+  --buffer_size 100 \
+  --steps_per_epoch 200 \
+  --batch_size 16 \
+  --lr 3e-5
+
+# VIP — full backbone
+python3 src/train/droid/vip_droid_finetune.py \
+  --data_dir ./droid_sample/1.0.0 \
+  --out_dir ./checkpoints/vip \
+  --finetune_mode full \
+  --epochs 5 \
+  --buffer_size 100 \
+  --steps_per_epoch 200 \
+  --batch_size 16 \
+  --lr 3e-5
 ```
 
-After fine-tuning completes, pass the checkpoint path to the evaluation scripts with `--encoder_checkpoint ./checkpoints/r3m_droid_finetuned.pt` (exact flag name may vary; check script `--help` output).
+Then evaluate the fine-tuned encoder:
+
+```bash
+# R3M fine-tuned evaluation
+python3 src/evals/metaworld/r3m_metaworld_multitask.py \
+  --encoder droid \
+  --checkpoint ./checkpoints/r3m/r3m_droid_finetuned.pt \
+  --tag droid_full
+
+# VIP fine-tuned evaluation
+python3 src/evals/metaworld/vip_metaworld_multitask.py \
+  --encoder droid \
+  --checkpoint ./checkpoints/vip/vip_droid_finetuned.pt \
+  --tag droid_full
+```
+
+Key fine-tuning arguments:
+- `--finetune_mode`: `projection_head` (recommended, less risk of catastrophic forgetting) or `full` (entire backbone)
+- `--buffer_size`: Episodes held in RAM at once -- 100 episodes uses approximately 2.5 GB RAM
+- `--steps_per_epoch`: Training steps per epoch (200 steps × 5 epochs = 1,000 total steps)
+- `--resume`: Path to a checkpoint to resume training from
 
 ### Ego-Exo4D Fine-tuning
 
-Fine-tune on Ego-Exo4D exocentric video:
+Fine-tune on Ego-Exo4D exocentric video, then evaluate:
 
 ```bash
 python3 src/train/egoexo4d/r3m_egoexo4d_finetune.py \
   --data_dir ./egoexo4d_raw \
-  --out_dir ./checkpoints/r3m_frozen \
+  --out_dir ./checkpoints/r3m \
   --epochs 5 \
   --batch_size 16
-```
 
-```bash
+python3 src/evals/metaworld/r3m_metaworld_multitask.py \
+  --encoder egoexo4d \
+  --checkpoint ./checkpoints/r3m/r3m_egoexo4d_finetuned.pt \
+  --tag egoexo4d
+
 python3 src/train/egoexo4d/vip_egoexo4d_finetune.py \
   --data_dir ./egoexo4d_raw \
-  --out_dir ./checkpoints/vip_frozen \
+  --out_dir ./checkpoints/vip \
   --epochs 5 \
   --batch_size 16
+
+python3 src/evals/metaworld/vip_metaworld_multitask.py \
+  --encoder egoexo4d \
+  --checkpoint ./checkpoints/vip/vip_egoexo4d_finetuned.pt \
+  --tag egoexo4d
 ```
 
 ---

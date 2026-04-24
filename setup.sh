@@ -257,79 +257,65 @@ source "${VENV_PATH}/bin/activate"
 info "Virtual environment activated."
 
 # -----------------------------------------------------------------------------
-# Step 3: Upgrade pip
+# Step 3: Upgrade pip and setuptools
 # -----------------------------------------------------------------------------
-header "Step 3: Upgrade pip"
-if maybe_prompt "Upgrade pip inside the virtual environment"; then
-    "$PIP" install --upgrade pip -q
-    success "pip upgraded."
+header "Step 3: Upgrade pip and setuptools"
+if maybe_prompt "Upgrade pip and setuptools inside the virtual environment"; then
+    # Use python -m pip to guarantee we're targeting the correct venv interpreter.
+    # setuptools==81.0.0 is pinned -- this is the version from the known-good venv
+    # and is required for pkg_resources to be importable (needed by gdown and r3m).
+    "$PYTHON" -m pip install --upgrade pip -q
+    "$PYTHON" -m pip install "setuptools==81.0.0" "wheel==0.47.0" -q
+    if "$PYTHON" -c "import pkg_resources" &>/dev/null; then
+        success "pip, setuptools==81.0.0, wheel -- OK"
+    else
+        warn "pkg_resources still not importable after setuptools install."
+        warn "Continuing -- this may cause r3m import to fail."
+    fi
 fi
 
 # -----------------------------------------------------------------------------
-# Step 4: Core Python packages
+# Step 4: PyTorch (must be installed before requirements.txt due to custom index)
 # -----------------------------------------------------------------------------
-header "Step 4: Core Python packages"
-if maybe_prompt "Install core packages (torch, torchvision, numpy, scipy, etc.)"; then
-    info "Installing base dependencies..."
-    "$PIP" install \
-        pyyaml \
-        typeguard \
-        setuptools \
-        jinja2 \
-        -q
-    info "Installing PyTorch (CUDA 11.8 build)..."
-    "$PIP" install torch torchvision \
-        --index-url https://download.pytorch.org/whl/cu118 -q
-    info "Installing remaining core packages..."
-    "$PIP" install \
-        numpy \
-        scipy \
-        pillow \
-        tqdm \
-        wandb \
-        transformers \
-        -q
-    success "Core packages installed."
+header "Step 4: PyTorch"
+if maybe_prompt "Install PyTorch"; then
+    info "Installing torch and torchvision from PyPI..."
+    "$PIP" install torch torchvision -q
+    success "PyTorch installed."
 fi
 
 # -----------------------------------------------------------------------------
-# Step 5: MetaWorld
+# Step 5: All remaining packages from requirements.txt
 # -----------------------------------------------------------------------------
-header "Step 5: MetaWorld"
-if maybe_prompt "Install MetaWorld simulation environment"; then
-    "$PIP" install metaworld -q
-    success "MetaWorld installed."
+header "Step 5: Install packages from requirements.txt"
+REQUIREMENTS_FILE="${REPO_ROOT}/requirements.txt"
+if [ ! -f "$REQUIREMENTS_FILE" ]; then
+    error "requirements.txt not found at ${REQUIREMENTS_FILE}"
+    error "Make sure the file is in the repository root."
+    exit 1
+fi
+if maybe_prompt "Install all packages from requirements.txt"; then
+    info "This installs pinned versions from the known-good working environment."
+    "$PIP" install -r "$REQUIREMENTS_FILE" -q
+    success "requirements.txt packages installed."
 fi
 
 # -----------------------------------------------------------------------------
-# Step 6: TensorFlow + TFRecord
+# Step 6: R3M submodule
 # -----------------------------------------------------------------------------
-header "Step 6: TensorFlow and TFRecord reader"
-if maybe_prompt "Install TensorFlow, tensorflow-datasets, and tfrecord"; then
-    "$PIP" install tensorflow tensorflow-datasets -q
-    info "Resolving protobuf version for TensorFlow 2.21..."
-    "$PIP" install "protobuf>=6.31.1,<8.0.0" -q
-    "$PIP" install tfrecord -q
-    success "TensorFlow stack installed."
-fi
-
-# -----------------------------------------------------------------------------
-# Step 7: Ego4D CLI (for Ego-Exo4D download)
-# -----------------------------------------------------------------------------
-header "Step 7: Ego4D / egoexo CLI"
-if maybe_prompt "Install ego4d package (provides the egoexo download CLI)"; then
-    "$PIP" install ego4d -q
-    success "ego4d CLI installed."
-fi
-
-# -----------------------------------------------------------------------------
-# Step 8: R3M submodule
-# -----------------------------------------------------------------------------
-header "Step 8: Install R3M"
+header "Step 6: Install R3M"
 R3M_DIR="${REPO_ROOT}/r3m"
 if [ -f "${R3M_DIR}/setup.py" ] || [ -f "${R3M_DIR}/pyproject.toml" ]; then
     if maybe_prompt "Install R3M from submodule (pip install -e ./r3m)"; then
-        "$PIP" install -e "$R3M_DIR" -q
+        # Uninstall any prior r3m to clear stale egg-links or direct_url.json
+        # entries that cause 'unknown location' errors when the venv is sourced.
+        "$PIP" uninstall r3m -y 2>/dev/null || true
+        # Also remove any stale .egg-link files left by previous editable installs
+        find "${VENV_PATH}" -name "r3m.egg-link" -delete 2>/dev/null || true
+        find "${VENV_PATH}" -name "r3m*.dist-info" -type d \
+            -exec rm -rf {} + 2>/dev/null || true
+        # Clear PYTHONPATH so no other venv's packages bleed in during install
+        PYTHONPATH="" "$PIP" install -e "$R3M_DIR"
         success "R3M installed."
     fi
 else
@@ -339,13 +325,17 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Step 9: VIP submodule
+# Step 7: VIP submodule
 # -----------------------------------------------------------------------------
-header "Step 9: Install VIP"
+header "Step 7: Install VIP"
 VIP_DIR="${REPO_ROOT}/vip"
 if [ -f "${VIP_DIR}/setup.py" ] || [ -f "${VIP_DIR}/pyproject.toml" ]; then
     if maybe_prompt "Install VIP from submodule (pip install -e ./vip)"; then
-        "$PIP" install -e "$VIP_DIR" -q
+        "$PIP" uninstall vip -y 2>/dev/null || true
+        find "${VENV_PATH}" -name "vip.egg-link" -delete 2>/dev/null || true
+        find "${VENV_PATH}" -name "vip*.dist-info" -type d \
+            -exec rm -rf {} + 2>/dev/null || true
+        PYTHONPATH="" "$PIP" install -e "$VIP_DIR"
         success "VIP installed."
     fi
 else
@@ -355,9 +345,9 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Step 10: Hydra / Python 3.12 compatibility patch
+# Step 8: Hydra / Python 3.12 compatibility patch
 # -----------------------------------------------------------------------------
-header "Step 10: Hydra Python 3.12 compatibility patch"
+header "Step 8: Hydra Python 3.12 compatibility patch"
 info "VIP's hydra-core 1.3.2 dependency has mutable dataclass defaults that"
 info "Python 3.12 rejects. This step patches the affected lines automatically."
 echo ""
@@ -461,9 +451,9 @@ PYEOF
 fi
 
 # -----------------------------------------------------------------------------
-# Step 11: Verify installs
+# Step 9: Verify installs
 # -----------------------------------------------------------------------------
-header "Step 11: Verification"
+header "Step 9: Verification"
 if maybe_prompt "Run quick import checks for R3M and VIP"; then
     echo ""
     info "Checking R3M..."
@@ -502,11 +492,20 @@ fi
 # -----------------------------------------------------------------------------
 header "Setup complete"
 echo ""
-info "To activate the virtual environment in future sessions:"
+info "The virtual environment is ready at: ${VENV_PATH}"
+echo ""
+warn "NOTE: This script cannot activate the virtual environment in your"
+warn "current terminal because child processes cannot modify the parent shell."
+echo ""
+info "To activate now, run:"
 echo -e "    ${BOLD}source ${VENV_PATH}/bin/activate${RESET}"
 echo ""
+info "TIP: If you want the venv activated automatically after setup in future"
+info "runs, source this script instead of executing it:"
+echo -e "    ${BOLD}. ./setup.sh${RESET}"
+echo ""
 info "To run the MetaWorld baseline evaluation (example):"
-echo -e "    ${BOLD}python3 src/evals/metaworld/r3m_metaworld_multitask.py --demo_episodes 10 --camera_id 0 --seed 42${RESET}"
+echo -e "    ${BOLD}python3 src/evals/metaworld/r3m_metaworld_multitask.py --encoder baseline --single_run --demos 10 --camera 0${RESET}"
 echo ""
 info "For dataset download instructions, see:"
 echo -e "    ${BOLD}docs/DROID_DOWNLOAD.md${RESET}"
